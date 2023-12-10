@@ -2,3 +2,4 @@
 *.img
 *.o
 .ccls-cache/
+bochsout.txt
