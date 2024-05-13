@@ -98,7 +98,7 @@ void monitor_write_hex(uint32 n) {
   char cH;
   for (unsigned long i = 0; i < (sizeof(uint32) * 2); i++, n <<= 4) {
     cH = (0xf0000000 & n) >> (sizeof(uint32) * 8 - 4);
-    cH += cH > 10 ? 'A' - 10 : '0';
+    cH += cH >= 10 ? ('A' - 10) : '0';
     monitor_put(cH);
   }
 }

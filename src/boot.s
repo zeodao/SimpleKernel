@@ -37,6 +37,8 @@ mboot:
 start:
   push    ebx                   ; Load multiboot header location
 
+  mov     ebp, 0
+
   ; Execute the kernel:
   cli                         ; Disable interrupts.
   call main                   ; call our main() function.

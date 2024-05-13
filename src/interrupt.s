@@ -100,9 +100,8 @@ isr_common_stub:
 
   popa          ; restore
   add esp, 8    ; remove param pass by stack
-  sti           ; start int
-  iret          ; pop cs EIP EFlag SS ESP
-
+  iret          ; pop cs EIP EFlag SS ESP iret will auto start interrupt
+ 
 [EXTERN] irq_handler
 ; save cpu stats, trans to kernel code, call c code (handler)
 ; and restore
@@ -129,7 +128,6 @@ irq_common_stub:
 
   popa
   add esp, 8 ; clear param
-  sti
   iret
  
 

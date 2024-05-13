@@ -1,10 +1,10 @@
 megs: 32
 romimage: file=/usr/local/share/bochs/BIOS-bochs-latest
 vgaromimage: file=/usr/local/share/bochs/VGABIOS-elpin-2.40
-floppya: 1_44=/dev/loop25, status=inserted
+floppya: 1_44=/dev/loop26, status=inserted
 boot: a
+display_library: x, options="cmdmode" 
 log: bochsout.txt
 mouse: enabled=0
 clock: sync=realtime
 cpu: ips=1000000
-
