@@ -1,10 +1,12 @@
 #include "common.h"
+#include "kHeap.h"
 #include "monitor.h"
 #include "paging.h"
-#include "kHeap.h"
 
 #define INDEX_FROM_BIT(a) (a / (8 * 4))
 #define OFFSET_FROM_BIT(a) (a % (8 * 4))
+
+extern heap_t *kHeap;
 
 void page_fault(register_t regs) {
   // get fault address from cr2
@@ -18,7 +20,6 @@ void page_fault(register_t regs) {
   int reserved = (regs.err_code & 0x8);
   int id = (regs.err_code & 0x10);
 
-  monitor_write("Page fault! ( ");
   if (present) {
     monitor_write("present ");
   }
@@ -45,9 +46,9 @@ uint32 *frames;
 uint32 nframes; // every bit in uint32 will be used to present this frame is
                 // valid or not
 
-page_directory_t *kernel_directory=0;
+page_directory_t *kernel_directory = 0;
 
-page_directory_t *current_directory=0;
+page_directory_t *current_directory = 0;
 
 static void set_frame(uint32 frame_addr) {
   uint32 frame = frame_addr / 0x1000; // shift right 12 bit
@@ -67,7 +68,7 @@ static int test_frame(uint32 frame_addr) {
   uint32 frame = frame_addr / 0x1000; // shift right 12 bit
   uint32 idx = INDEX_FROM_BIT(frame);
   uint32 off = OFFSET_FROM_BIT(frame);
-  return (frames[idx] | (0x1 << off)); 
+  return (frames[idx] & (0x1 << off));
 };
 
 static uint32 first_frame() {
@@ -92,6 +93,7 @@ void alloc_frame(page_t *page, int is_kernel, int is_writeable) {
   if (idx == (uint32)(-1)) {
     PANIC("No free frames");
   }
+
   set_frame(idx * 0x1000);
   page->present = 1;
   page->rw = is_writeable ? 1 : 0;
@@ -99,7 +101,7 @@ void alloc_frame(page_t *page, int is_kernel, int is_writeable) {
   page->frame = idx;
 }
 
-void free_frame(page_t *page, int is_kernel, int is_writeable) {
+void free_frame(page_t *page) {
   uint32 frame;
   if (!(frame = page->frame)) {
     return;
@@ -109,57 +111,73 @@ void free_frame(page_t *page, int is_kernel, int is_writeable) {
   page->frame = 0;
 }
 
-void initialise_paging(){
-
-  register_interrupt_handler(14, &page_fault);
-
+void initialise_paging() {
   // 16 MB of RAM 4k page
   uint32 mem_end_page = 0x10000000;
 
-
   nframes = mem_end_page / 0x1000; // 4kpage size
-  frames = (uint32*)kmalloc(INDEX_FROM_BIT(nframes));
-  memset(frames, 0, INDEX_FROM_BIT(nframes)); // page index size
-  
-  kernel_directory = (page_directory_t*)kmalloc_a(sizeof(page_directory_t));
+  frames = (uint32 *)kmalloc(INDEX_FROM_BIT(nframes) * sizeof(uint32));
+  memset(frames, 0,
+         INDEX_FROM_BIT(nframes) * sizeof(uint32)); // page index size
+
+  kernel_directory = (page_directory_t *)kmalloc_a(sizeof(page_directory_t));
   memset(kernel_directory, 0, sizeof(page_directory_t));
   current_directory = kernel_directory;
+  // in this case
+  uint32 i = 0;
 
-  // in this case 
-  int i = 0;
-  while (i < placement_address) {
+  for (i = KHEAP_START; i < (KHEAP_START + KHEAP_INITIAL_SIZE); i += 0x1000) {
+    get_page(i, 1, kernel_directory);
+  }
+
+  i = 0;
+
+  while (i < placement_address + 0x1000) {
     alloc_frame(get_page(i, 1, kernel_directory), 0, 0);
     i += 0x1000;
   }
 
+  for (i = KHEAP_START; i < (KHEAP_START + KHEAP_INITIAL_SIZE); i += 0x1000) {
+    alloc_frame(get_page(i, 1, kernel_directory), 0, 0);
+  }
+
+  register_interrupt_handler(14, &page_fault);
+
   switch_page_directory(kernel_directory);
+
+  uint32 cr3;
+  asm volatile("mov %%cr3, %0" : "=r"(cr3));
+
   uint32 cr0;
-  asm volatile("mov %%cr0, %0": "=r"(cr0));
-  cr0 |= 0x80000000;// enable paging
-  asm volatile("mov %0, %%cr0":: "r"(cr0));
+  asm volatile("mov %%cr0, %0" : "=r"(cr0));
+  cr0 |= 0x80000000; // enable paging
+  asm volatile("mov %0, %%cr0" ::"r"(cr0));
+
+  // init k heap
+  kHeap = CreateHeap(KHEAP_START, KHEAP_START + KHEAP_INITIAL_SIZE, 0XCFFFF000,
+                     0, 0);
 }
 
-void switch_page_directory(page_directory_t *newPage){
+void switch_page_directory(page_directory_t *newPage) {
   current_directory = newPage;
-  asm volatile("mov %0, %%cr3":: "r"(&newPage->tablesPhysical));
+  asm volatile("mov %0, %%cr3" ::"r"(&newPage->tablesPhysical));
 }
 
+page_t *get_page(uint32 address, int make, page_directory_t *dir) {
+  address = address / 0x1000; // page index
 
-page_t *get_page(uint32 address, int make, page_directory_t* dir){
-  address /= 0x1000; // page index
+  uint32 table_idx = address / 1024; // one table contain 1024 page
 
-  uint32 table_idx = address / 1024; // one table contain 1024 poge
-  if (dir->tables[table_idx]){
-    return &dir->tables[table_idx]->pages[address%1024];
+  if (dir->tables[table_idx]) {
+    return &dir->tables[table_idx]->pages[address % 1024];
   }
-  if (make){
+  if (make) {
     uint32 tmp;
-    dir->tables[table_idx] = (page_table_t*)kmalloc_ap(sizeof(page_table_t), &tmp);
-    memset(dir->tables[table_idx], 0, 0x1000);
+    dir->tables[table_idx] =
+        (page_table_t *)kmalloc_ap(sizeof(page_table_t), &tmp);
+    memset(dir->tables[table_idx], 0, sizeof(page_table_t));
     dir->tablesPhysical[table_idx] = tmp | 0x7;
-    return &dir->tables[table_idx]->pages[address%1024];
-  }else{
-    return 0;
+    return &dir->tables[table_idx]->pages[address % 1024];
   }
+  return 0;
 }
-

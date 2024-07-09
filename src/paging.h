@@ -23,9 +23,12 @@ typedef struct page_directory{
 
   uint32 tablesPhysical[1024];
 
-  uint32 pyhsicalAddr;
-
+  uint32 physicaladdr;
 }page_directory_t;
+
+void alloc_frame(page_t *page, int is_kernel, int is_writeable); 
+
+void free_frame(page_t *page);
 
 void initialise_paging();
 
@@ -36,3 +39,4 @@ page_t *get_page(uint32 address, int make, page_directory_t* dir);
 void page_fault(register_t regs);
 
 #endif // PAGING_h
+
